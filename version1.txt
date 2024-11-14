@@ -1,0 +1,392 @@
+app.js:
+const express = require("express");
+const socket = require("socket.io");
+const http = require("http");
+const { Chess } = require("chess.js");
+const path = require("path");
+
+const app = express();
+const server = http.createServer(app);
+const io = socket(server);
+
+const chess = new Chess();
+let players = {};
+let currentPlayer = "w";
+
+app.set("view engine", "ejs");
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/", (req, res) => {
+  res.render("index", { title: "Chess game" });
+});
+
+io.on("connection", function (uniquesocket) {
+  console.log("connected");
+
+  if (!players.white) {
+    players.white = uniquesocket.id;
+    uniquesocket.emit("playerRole", "w");
+  } else if (!players.black) {
+    players.black = uniquesocket.id;
+    uniquesocket.emit("playerRole", "b");
+  } else {
+    uniquesocket.emit("spectatorRole");
+  }
+
+  uniquesocket.on("disconnect", function () {
+    if (uniquesocket.id === players.white) {
+      delete players.white;
+    } else if (uniquesocket.id === players.black) {
+      delete players.black;
+    }
+  });
+
+  uniquesocket.on("move", (move) => {
+    try {
+      if (chess.turn() === "w" && uniquesocket.id !== players.white) return;
+      if (chess.turn() === "b" && uniquesocket.id !== players.black) return;
+
+      const result = chess.move(move);
+      if (result) {
+        currentPlayer = chess.turn();
+        io.emit("move", move);
+        io.emit("boardState", chess.fen());
+
+        // Check for game over
+        if (chess.isGameOver()) {
+          io.emit(
+            "gameOver",
+            chess.turn() === "w" ? "Black wins!" : "White wins!"
+          );
+        }
+      } else {
+        console.log("Invalid move: ", move);
+        uniquesocket.emit("invalidMove", move);
+      }
+    } catch (err) {
+      console.log(err);
+      uniquesocket.emit("invalidMove", move);
+    }
+  });
+
+  uniquesocket.on("resetGame", () => {
+    chess.reset();
+    io.emit("boardState", chess.fen());
+  });
+});
+
+server.listen(3000, function () {
+  console.log("listening on port 3000");
+});
+
+index.ejs:
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .chessboard {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        grid-template-rows: repeat(8, minmax(0, 1fr));
+        width: 400px;
+        height: 400px;
+        transform: rotate(0deg);
+      }
+
+      .piece.white {
+        color: white;
+        filter: drop-shadow(0 0 2px rgba(0, 0, 0, 1));
+      }
+
+      .piece.black {
+        color: black;
+      }
+
+      .flipped {
+        transform: rotate(180deg);
+      }
+
+      .square {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+
+      .square.light {
+        background-color: #f0d9b5;
+      }
+
+      .square.dark {
+        background-color: #b58863;
+      }
+
+      .piece {
+        font-size: 36px;
+        cursor: pointer;
+      }
+
+      .piece.draggable {
+        cursor: grab;
+      }
+
+      .dragging {
+        opacity: 0.5;
+      }
+
+      .flipped .piece {
+        transform: rotate(180deg);
+      }
+
+      #message {
+        font-size: 18px;
+        font-weight: bold;
+      }
+
+      #currentPlayer {
+        font-size: 20px;
+        font-weight: bold;
+      }
+
+      .highlight {
+        background-color: rgba(255, 255, 0, 0.5);
+      }
+
+      /* .dot {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background-color: red;
+        border-radius: 50%;
+        display: none;
+      } */
+
+      .dot {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background-color: red;
+        border-radius: 50%;
+        display: none;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+    </style>
+    <title><%= title %></title>
+  </head>
+  <body>
+    <div
+      class="w-full h-screen bg-zinc-900 flex items-center justify-center flex-col"
+    >
+      <div id="currentPlayer" class="text-white m-4"></div>
+      <div class="chessboard w-96 h-96 bg-red-400"></div>
+      <button id="resetGame" class="mt-4 bg-blue-500 text-white p-2 rounded">
+        Reset Game
+      </button>
+    </div>
+    <script
+      src="https://cdn.socket.io/4.8.0/socket.io.min.js"
+      integrity="sha384-OoIbkvzsFFQAG88r+IqMAjyOtYDPGO0cqK5HF5Uosdy/zUEGySeAzytENMDynREd"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"
+      integrity="sha512-xRllwz2gdZciIB+AkEbeq+gVhX8VB8XsfqeFbUh+SzHlN96dEduwtTuVuc2u9EROlmW9+yhRlxjif66ORpsgVA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="/js/chessgame.js"></script>
+  </body>
+</html>
+
+chessgame.js:
+const socket = io();
+const chess = new Chess();
+const boardElement = document.querySelector(".chessboard");
+const messageElement = document.getElementById("message");
+const currentPlayerElement = document.getElementById("currentPlayer");
+
+let draggedPiece = null;
+let sourceSquare = null;
+let playerRole = null;
+let highlightedSquares = [];
+
+const renderBoard = () => {
+  const board = chess.board();
+  boardElement.innerHTML = "";
+  highlightedSquares = []; // Reset highlighted squares
+
+  board.forEach((row, rowindex) => {
+    row.forEach((square, squareindex) => {
+      const squareElement = document.createElement("div");
+      squareElement.classList.add(
+        "square",
+        (rowindex + squareindex) % 2 === 0 ? "light" : "dark"
+      );
+
+      squareElement.dataset.row = rowindex;
+      squareElement.dataset.col = squareindex;
+
+      if (square) {
+        const pieceElement = document.createElement("div");
+        pieceElement.classList.add(
+          "piece",
+          square.color === "w" ? "white" : "black"
+        );
+        pieceElement.innerText = getPieceUnicode(square);
+        pieceElement.draggable = playerRole === square.color;
+
+        pieceElement.addEventListener("dragstart", (e) => {
+          if (pieceElement.draggable) {
+            draggedPiece = pieceElement;
+            sourceSquare = { row: rowindex, col: squareindex };
+            e.dataTransfer.setData("text/plain", "");
+          }
+        });
+
+        // Add tap event listener for touch devices
+        pieceElement.addEventListener("click", () => {
+          if (pieceElement.draggable) {
+            highlightPossibleMoves(square, rowindex, squareindex);
+          }
+        });
+
+        squareElement.appendChild(pieceElement);
+      }
+
+      squareElement.addEventListener("dragover", function (e) {
+        e.preventDefault();
+      });
+
+      squareElement.addEventListener("drop", function (e) {
+        e.preventDefault();
+        if (draggedPiece) {
+          const targetSource = {
+            row: parseInt(squareElement.dataset.row),
+            col: parseInt(squareElement.dataset.col),
+          };
+
+          handleMove(sourceSquare, targetSource);
+        }
+      });
+
+      boardElement.appendChild(squareElement);
+    });
+  });
+
+  if (playerRole === "b") {
+    boardElement.classList.add("flipped");
+  } else {
+    boardElement.classList.remove("flipped");
+  }
+  currentPlayerElement.innerText = `Current Player: ${
+    chess.turn() === "w" ? "White" : "Black"
+  }`;
+};
+
+const highlightPossibleMoves = (piece, row, col) => {
+  // Clear previous highlights
+  clearHighlights();
+
+  const moves = chess.moves({
+    square: `${String.fromCharCode(97 + col)}${8 - row}`,
+    verbose: true,
+  });
+
+  moves.forEach((move) => {
+    const targetRow = 8 - parseInt(move.to[1]);
+    const targetCol = move.to[0].charCodeAt(0) - 97;
+
+    const squareElement = boardElement.children[targetRow * 8 + targetCol];
+    squareElement.classList.add("highlight");
+
+    // Create a dot for the possible move
+    const dot = document.createElement("div");
+    dot.classList.add("dot");
+    dot.style.top = `${targetRow * 12.5}%`;
+    dot.style.left = `${targetCol * 12.5}%`;
+    dot.style.display = "block"; // Show the dot
+    squareElement.appendChild(dot);
+    highlightedSquares.push(squareElement); // Keep track of highlighted squares
+  });
+};
+
+const clearHighlights = () => {
+  highlightedSquares.forEach((square) => {
+    square.classList.remove("highlight");
+    const dots = square.querySelectorAll(".dot");
+    dots.forEach((dot) => dot.remove()); // Remove dots
+  });
+  highlightedSquares = []; // Reset highlighted squares
+};
+
+const handleMove = (source, target) => {
+  const move = {
+    from: `${String.fromCharCode(97 + source.col)}${8 - source.row}`,
+    to: `${String.fromCharCode(97 + target.col)}${8 - target.row}`,
+    promotion: "q", // Promote to a queen if needed
+  };
+
+  const result = chess.move(move);
+  if (result) {
+    socket.emit("move", move);
+    renderBoard();
+  } else {
+    console.log("Invalid move");
+  }
+};
+
+const getPieceUnicode = (piece) => {
+  const unicodePieces = {
+    P: "♙",
+    R: "♖",
+    N: "♘",
+    B: "♗",
+    Q: "♕",
+    K: "♔",
+    p: "♟",
+    r: "♜",
+    n: "♞",
+    b: "♝",
+    q: "♛",
+    k: "♚",
+  };
+  return unicodePieces[piece.type || ""];
+};
+
+socket.on("playerRole", function (role) {
+  playerRole = role;
+  renderBoard();
+});
+
+socket.on("spectatorRole", function () {
+  playerRole = null;
+  renderBoard();
+});
+
+socket.on("boardState", function (fen) {
+  chess.load(fen);
+  renderBoard();
+  document.getElementById("currentPlayer").innerText = `Current Player: ${
+    chess.turn() === "w" ? "White" : "Black"
+  }`;
+});
+
+socket.on("move", function (move) {
+  chess.move(move);
+  renderBoard();
+});
+
+socket.on("gameOver", function (message) {
+  alert(message);
+});
+
+document.getElementById("resetGame").addEventListener("click", () => {
+  socket.emit("resetGame");
+});
+
+renderBoard();

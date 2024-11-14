@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .chessboard {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        grid-template-rows: repeat(8, minmax(0, 1fr));
+        width: 400px;
+        height: 400px;
+        transform: rotate(0deg);
+      }
+
+      .flipped {
+        transform: rotate(180deg);
+      }
+
+      .square {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+
+      .square.light {
+        background-color: #eeeed2;
+      }
+
+      .square.dark {
+        background-color: #749755;
+      }
+
+      .piece {
+        font-size: 36px;
+        cursor: pointer;
+      }
+
+      .piece.draggable {
+        cursor: grab;
+      }
+
+      .dragging {
+        opacity: 0.5;
+      }
+
+      .flipped .piece {
+        transform: rotate(180deg);
+      }
+
+      #message {
+        font-size: 18px;
+        font-weight: bold;
+      }
+
+      #currentPlayer {
+        font-size: 20px;
+        font-weight: bold;
+      }
+
+      .highlight {
+        background-color: rgba(255, 255, 0, 0.5);
+      }
+
+      .dot {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background-color: black;
+        opacity: 0.3;
+        border-radius: 50%;
+        display: block;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+    </style>
+    <title><%= title %></title>
+  </head>
+  <body>
+    <div
+      class="w-full h-screen bg-zinc-900 flex items-center justify-center flex-col"
+    >
+      <div id="currentPlayer" class="text-white m-4"></div>
+      <div class="chessboard w-96 h-96 bg-red-400"></div>
+      <button id="resetGame" class="mt-4 bg-blue-500 text-white p-2 rounded">
+        Reset Game
+      </button>
+    </div>
+    <script
+      src="https://cdn.socket.io/4.8.0/socket.io.min.js"
+      integrity="sha384-OoIbkvzsFFQAG88r+IqMAjyOtYDPGO0cqK5HF5Uosdy/zUEGySeAzytENMDynREd"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"
+      integrity="sha512-xRllwz2gdZciIB+AkEbeq+gVhX8VB8XsfqeFbUh+SzHlN96dEduwtTuVuc2u9EROlmW9+yhRlxjif66ORpsgVA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="/js/chessgame.js"></script>
+  </body>
+</html>
