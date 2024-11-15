@@ -1,3 +1,4 @@
+// app.use(express.static(path.join(__dirname, "public")));
 const express = require("express");
 const socket = require("socket.io");
 const http = require("http");
@@ -14,8 +15,6 @@ let currentPlayer = "w";
 
 app.set("view engine", "ejs");
 app.set('views', path.join(__dirname, 'views'));
-
-// app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/", (req, res) => {
   res.render("index", { title: "Chess game" });
